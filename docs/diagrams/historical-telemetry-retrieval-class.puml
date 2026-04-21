@@ -1,0 +1,37 @@
+@startuml
+!pragma layout smetana
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+package "Frontend" {
+  class ChartComponent <<component>>
+  class TelemetryHistoryStore <<signal store>>
+  class TelemetryHistoryApiClient <<http client>>
+  class ChartViewportProjector <<projector>>
+  class ChartJsSeriesAdapter <<adapter>>
+}
+
+package "Contracts" {
+  class HistoricalTelemetryQuery
+  class TelemetryHistoryPageDto
+  class TelemetryHistoryCursorDto
+  class TelemetryPointDto
+  class HistoryPageCacheEntry
+  class LoadedRange
+}
+
+ChartComponent --> TelemetryHistoryStore : updates viewport\nswitches mode
+ChartComponent --> ChartJsSeriesAdapter : owns chart instance
+TelemetryHistoryStore --> TelemetryHistoryApiClient : fetchPage()
+TelemetryHistoryStore --> ChartViewportProjector : projectVisibleSeries()
+TelemetryHistoryStore o-- HistoryPageCacheEntry : caches
+TelemetryHistoryStore o-- LoadedRange : tracks coverage
+ChartViewportProjector --> ChartJsSeriesAdapter : render(series)
+TelemetryHistoryApiClient --> HistoricalTelemetryQuery
+TelemetryHistoryApiClient --> TelemetryHistoryPageDto
+TelemetryHistoryPageDto o-- TelemetryHistoryCursorDto : previousCursor
+TelemetryHistoryPageDto o-- TelemetryHistoryCursorDto : nextCursor
+TelemetryHistoryPageDto "1" o-- "*" TelemetryPointDto : items
+HistoricalTelemetryQuery --> TelemetryHistoryCursorDto : cursor
+@enduml

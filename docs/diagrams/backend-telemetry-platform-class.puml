@@ -1,0 +1,50 @@
+@startuml
+!pragma layout smetana
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+package "Workers" {
+  class TelemetryGenerationWorker <<BackgroundService>>
+  class TelemetryFanOutWorker <<BackgroundService>>
+  class TelemetryPersistenceWorker <<BackgroundService>>
+  class TelemetryBroadcastWorker <<BackgroundService>>
+}
+
+package "API" {
+  class TelemetryController <<Controller>>
+  class TelemetryHub <<Hub>>
+}
+
+package "Application" {
+  interface ITelemetryValueGenerator
+  class TelemetryHistoryService
+  interface ITelemetryRepository
+  interface ITelemetryClient
+}
+
+package "Infrastructure" {
+  class SqlTelemetryRepository
+  class TelemetrySample
+  class TelemetryHistoryRequest
+  class TelemetryHistoryPageDto
+  class TelemetryHistoryCursorDto
+  class TelemetryMetricOptions
+}
+
+TelemetryGenerationWorker --> ITelemetryValueGenerator : generate values
+TelemetryGenerationWorker --> TelemetryFanOutWorker : ingress channel
+TelemetryFanOutWorker --> TelemetryPersistenceWorker : persistence channel
+TelemetryFanOutWorker --> TelemetryBroadcastWorker : broadcast channel
+TelemetryPersistenceWorker --> ITelemetryRepository : insert batch
+TelemetryBroadcastWorker --> ITelemetryClient : telemetrySample()
+TelemetryController --> TelemetryHistoryService : getHistory()
+TelemetryHistoryService --> ITelemetryRepository : read page
+SqlTelemetryRepository ..|> ITelemetryRepository
+TelemetryHub --> ITelemetryClient : group broadcast
+TelemetryHistoryService --> TelemetryHistoryRequest
+TelemetryHistoryService --> TelemetryHistoryPageDto
+TelemetryHistoryPageDto o-- TelemetryHistoryCursorDto
+TelemetryHistoryPageDto "1" o-- "*" TelemetrySample
+TelemetryGenerationWorker --> TelemetryMetricOptions
+@enduml

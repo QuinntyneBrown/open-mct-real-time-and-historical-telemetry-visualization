@@ -1,0 +1,36 @@
+@startuml
+actor User
+participant ChartComponent
+participant TelemetryHistoryStore
+participant TelemetryHistoryApiClient
+participant TelemetryController
+database "Telemetry DB" as Db
+participant ChartJsSeriesAdapter
+
+User -> ChartComponent : drag scrubber to target time
+ChartComponent -> TelemetryHistoryStore : setViewport(range)
+TelemetryHistoryStore -> TelemetryHistoryStore : check loadedRanges
+
+alt full range already cached
+  TelemetryHistoryStore -> ChartJsSeriesAdapter : scheduleRender(visibleSeries)
+  ChartJsSeriesAdapter -> ChartJsSeriesAdapter : requestAnimationFrame()
+  ChartJsSeriesAdapter -> ChartJsSeriesAdapter : chart.update("none")
+else cache gap exists
+  TelemetryHistoryStore -> TelemetryHistoryApiClient : fetchPage(query)
+  TelemetryHistoryApiClient -> TelemetryController : GET /api/telemetry/history
+  TelemetryController -> Db : cursor query by metricId,\ntimestampUtc, sampleId
+  Db --> TelemetryController : ordered rows
+  TelemetryController --> TelemetryHistoryApiClient : page dto
+  TelemetryHistoryApiClient --> TelemetryHistoryStore : Observable<TelemetryHistoryPageDto>
+  TelemetryHistoryStore -> TelemetryHistoryStore : merge page and ranges
+  TelemetryHistoryStore -> ChartJsSeriesAdapter : scheduleRender(visibleSeries)
+  ChartJsSeriesAdapter -> ChartJsSeriesAdapter : requestAnimationFrame()
+  ChartJsSeriesAdapter -> ChartJsSeriesAdapter : chart.update("none")
+
+  alt viewport near cache edge
+    TelemetryHistoryStore -> TelemetryHistoryApiClient : prefetch adjacent page
+    TelemetryHistoryApiClient --> TelemetryHistoryStore : adjacent page
+    TelemetryHistoryStore -> TelemetryHistoryStore : extend coverage
+  end
+end
+@enduml
