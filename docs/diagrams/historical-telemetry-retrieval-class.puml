@@ -5,8 +5,9 @@ skinparam classAttributeIconSize 0
 skinparam packageStyle rectangle
 
 package "Frontend" {
-  class TelemetryChartComponent <<component>>
+  class TelemetryChartComponent <<Angular Material component>>
   class TelemetryChartStore <<signal store>>
+  class TelemetryLiveClient <<signalr client>>
   class TelemetryHistoryClient <<http client>>
 }
 
@@ -16,15 +17,18 @@ package "Contracts" {
   class TelemetryHistoryPage
   class LoadedWindow
   class Viewport
+  class LiveSubscriptionState
   enum ChartMode
   enum HistoryDirection
 }
 
-TelemetryChartComponent --> TelemetryChartStore : scrub / resume live
+TelemetryChartComponent --> TelemetryChartStore : select telemetry / scrub / resume live
 TelemetryChartComponent --> TelemetryChartComponent : render on animation frame
+TelemetryChartStore --> TelemetryLiveClient : subscribe / unsubscribe
 TelemetryChartStore --> TelemetryHistoryClient : fetch history page
 TelemetryChartStore o-- TelemetryPoint : ordered timeline
 TelemetryChartStore o-- LoadedWindow : loaded history
+TelemetryChartStore --> LiveSubscriptionState
 TelemetryChartStore --> Viewport
 TelemetryChartStore --> ChartMode
 TelemetryHistoryClient --> TelemetryHistoryPage

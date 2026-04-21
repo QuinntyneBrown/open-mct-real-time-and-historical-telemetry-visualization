@@ -7,10 +7,12 @@ database "Telemetry DB" as Db
 actor Browser
 participant TelemetryController
 
-loop every 50 ms
+Browser -> TelemetryHub : SubscribeTelemetry(telemetryId)
+
+loop every 50 ms for each configured telemetryId
   TelemetryGeneratorWorker -> TelemetryDispatchWorker : TelemetrySample via channel
-  TelemetryDispatchWorker -> TelemetryHub : telemetrySample(metric group)
-  TelemetryHub --> Browser : live sample
+  TelemetryDispatchWorker -> TelemetryHub : telemetrySample(telemetry group)
+  TelemetryHub --> Browser : live sample for subscribed telemetryId
   TelemetryDispatchWorker -> TelemetryDispatchWorker : add sample to batch
 end
 

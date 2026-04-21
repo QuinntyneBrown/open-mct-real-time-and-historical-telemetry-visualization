@@ -27,6 +27,6 @@ TelemetryController --> TelemetryRepository : read history page
 TelemetryRepository --> TelemetryHistoryPageDto
 TelemetryHistoryPageDto o-- TelemetryHistoryCursorDto
 TelemetryHistoryPageDto "1" o-- "*" TelemetrySample : items
-TelemetryGeneratorWorker --> TelemetryOptions
+TelemetryGeneratorWorker --> TelemetryOptions : configured telemetryIds
 TelemetryHistoryCursorDto --> HistoryDirection
 @enduml

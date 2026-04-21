@@ -2,9 +2,22 @@
 actor User
 participant TelemetryChartComponent
 participant TelemetryChartStore
+participant TelemetryLiveClient
+participant TelemetryHub
 participant TelemetryHistoryClient
 participant TelemetryController
 database "Telemetry DB" as Db
+
+User -> TelemetryChartComponent : choose telemetryId
+TelemetryChartComponent -> TelemetryChartStore : setActiveTelemetryId(telemetryId)
+TelemetryChartStore -> TelemetryLiveClient : subscribe(telemetryId)
+TelemetryLiveClient -> TelemetryHub : SubscribeTelemetry(telemetryId)
+TelemetryHub --> TelemetryLiveClient : subscribed
+TelemetryLiveClient --> TelemetryChartStore : telemetrySample(telemetryId)
+TelemetryChartStore -> TelemetryChartStore : merge live sample
+TelemetryChartStore --> TelemetryChartComponent : visible points
+TelemetryChartComponent -> TelemetryChartComponent : requestAnimationFrame()
+TelemetryChartComponent -> TelemetryChartComponent : chart.update("none")
 
 User -> TelemetryChartComponent : scrub to time range
 TelemetryChartComponent -> TelemetryChartStore : setViewport(range)
