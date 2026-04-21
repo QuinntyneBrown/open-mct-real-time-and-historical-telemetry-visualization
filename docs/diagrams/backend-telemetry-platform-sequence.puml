@@ -1,31 +1,29 @@
 @startuml
-participant TelemetryGenerationWorker
-participant TelemetryFanOutWorker
-participant TelemetryPersistenceWorker
-participant TelemetryBroadcastWorker
+participant TelemetryGeneratorWorker
+participant TelemetryDispatchWorker
 participant TelemetryHub
+participant TelemetryRepository
 database "Telemetry DB" as Db
 actor Browser
 participant TelemetryController
-participant TelemetryHistoryService
 
 loop every 50 ms
-  TelemetryGenerationWorker -> TelemetryFanOutWorker : TelemetrySample
-  TelemetryFanOutWorker -> TelemetryPersistenceWorker : enqueue sample
-  TelemetryFanOutWorker -> TelemetryBroadcastWorker : enqueue sample
-  TelemetryBroadcastWorker -> TelemetryHub : telemetrySample(metric group)
+  TelemetryGeneratorWorker -> TelemetryDispatchWorker : TelemetrySample via channel
+  TelemetryDispatchWorker -> TelemetryHub : telemetrySample(metric group)
   TelemetryHub --> Browser : live sample
+  TelemetryDispatchWorker -> TelemetryDispatchWorker : add sample to batch
 end
 
 loop every 100 ms or 256 samples
-  TelemetryPersistenceWorker -> Db : batched insert
-  Db --> TelemetryPersistenceWorker : rows committed
+  TelemetryDispatchWorker -> TelemetryRepository : insert batch
+  TelemetryRepository -> Db : append rows
+  Db --> TelemetryRepository : commit
 end
 
 Browser -> TelemetryController : GET /api/telemetry/history
-TelemetryController -> TelemetryHistoryService : getHistory(request)
-TelemetryHistoryService -> Db : cursor query
-Db --> TelemetryHistoryService : ordered samples
-TelemetryHistoryService --> TelemetryController : TelemetryHistoryPageDto
+TelemetryController -> TelemetryRepository : read history page
+TelemetryRepository -> Db : cursor query
+Db --> TelemetryRepository : ordered rows
+TelemetryRepository --> TelemetryController : TelemetryHistoryPageDto
 TelemetryController --> Browser : page dto
 @enduml

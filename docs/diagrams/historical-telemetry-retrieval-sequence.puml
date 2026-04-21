@@ -1,36 +1,29 @@
 @startuml
 actor User
-participant ChartComponent
-participant TelemetryHistoryStore
-participant TelemetryHistoryApiClient
+participant TelemetryChartComponent
+participant TelemetryChartStore
+participant TelemetryHistoryClient
 participant TelemetryController
 database "Telemetry DB" as Db
-participant ChartJsSeriesAdapter
 
-User -> ChartComponent : drag scrubber to target time
-ChartComponent -> TelemetryHistoryStore : setViewport(range)
-TelemetryHistoryStore -> TelemetryHistoryStore : check loadedRanges
+User -> TelemetryChartComponent : scrub to time range
+TelemetryChartComponent -> TelemetryChartStore : setViewport(range)
+TelemetryChartStore -> TelemetryChartStore : check loaded windows
 
-alt full range already cached
-  TelemetryHistoryStore -> ChartJsSeriesAdapter : scheduleRender(visibleSeries)
-  ChartJsSeriesAdapter -> ChartJsSeriesAdapter : requestAnimationFrame()
-  ChartJsSeriesAdapter -> ChartJsSeriesAdapter : chart.update("none")
-else cache gap exists
-  TelemetryHistoryStore -> TelemetryHistoryApiClient : fetchPage(query)
-  TelemetryHistoryApiClient -> TelemetryController : GET /api/telemetry/history
-  TelemetryController -> Db : cursor query by metricId,\ntimestampUtc, sampleId
+alt viewport already loaded
+  TelemetryChartStore --> TelemetryChartComponent : visible points
+  TelemetryChartComponent -> TelemetryChartComponent : requestAnimationFrame()
+  TelemetryChartComponent -> TelemetryChartComponent : chart.update("none")
+else history gap exists
+  TelemetryChartStore -> TelemetryHistoryClient : fetchPage(query)
+  TelemetryHistoryClient -> TelemetryController : GET /api/telemetry/history
+  TelemetryController -> Db : cursor query
   Db --> TelemetryController : ordered rows
-  TelemetryController --> TelemetryHistoryApiClient : page dto
-  TelemetryHistoryApiClient --> TelemetryHistoryStore : Observable<TelemetryHistoryPageDto>
-  TelemetryHistoryStore -> TelemetryHistoryStore : merge page and ranges
-  TelemetryHistoryStore -> ChartJsSeriesAdapter : scheduleRender(visibleSeries)
-  ChartJsSeriesAdapter -> ChartJsSeriesAdapter : requestAnimationFrame()
-  ChartJsSeriesAdapter -> ChartJsSeriesAdapter : chart.update("none")
-
-  alt viewport near cache edge
-    TelemetryHistoryStore -> TelemetryHistoryApiClient : prefetch adjacent page
-    TelemetryHistoryApiClient --> TelemetryHistoryStore : adjacent page
-    TelemetryHistoryStore -> TelemetryHistoryStore : extend coverage
-  end
+  TelemetryController --> TelemetryHistoryClient : page dto
+  TelemetryHistoryClient --> TelemetryChartStore : Observable<TelemetryHistoryPage>
+  TelemetryChartStore -> TelemetryChartStore : merge timeline and loaded windows
+  TelemetryChartStore --> TelemetryChartComponent : visible points
+  TelemetryChartComponent -> TelemetryChartComponent : requestAnimationFrame()
+  TelemetryChartComponent -> TelemetryChartComponent : chart.update("none")
 end
 @enduml

@@ -1,97 +1,116 @@
 # Historical Telemetry Retrieval Detailed Design
 
 ## Overview
-This feature lets one Angular `Chart.js` chart move between live mode and historical scrub mode without frame drops. The design keeps the critical path simple:
+This design is the minimum frontend shape that satisfies the requirements in [telemetry-visualization-high-level-requirements.md](./telemetry-visualization-high-level-requirements.md):
 
-1. Fetch historical pages over HTTP using a stable cursor made from `timestampUtc` and `sampleId`.
-2. Store fetched pages in an Angular Signals store, not an RxJS store.
-3. Project only the visible window into Chart.js on `requestAnimationFrame`.
-4. Prefetch the next missing page before the scrubber reaches a cache edge.
+- one Angular component owns one Chart.js chart
+- one Angular Signals store owns all chart state and all fetch decisions
+- one HTTP client wraps `HttpClient` observables for historical pages
 
-The result is a chart that stays responsive at 60 FPS while live telemetry continues to arrive at 20 Hz.
+There are no extra adapter, projector, or coordinator classes. The chart stays smooth by doing three things only:
+
+1. Keep one ordered in-memory timeline for one metric.
+2. Keep one small list of loaded time windows to know when history is already present.
+3. Render only the current viewport on `requestAnimationFrame`.
+
+This design covers `FR3` through `FR8` and `NFR1` through `NFR4`.
 
 ![Historical retrieval class diagram](./diagrams/historical-telemetry-retrieval-class.png)
 
 ![Historical retrieval sequence diagram](./diagrams/historical-telemetry-retrieval-sequence.png)
 
 ## Radically Simple Shape
-- One chart displays one `metricId`.
-- Live data arrives from SignalR and is appended to the hot cache.
-- Historical data arrives from `HttpClient` observables.
-- The store owns state with Signals.
-- The chart adapter owns rendering and runs outside Angular change detection.
+- `TelemetryChartComponent` owns the Chart.js instance and the scrubber UI.
+- `TelemetryChartStore` owns mode, viewport, live samples, historical samples, and loading flags with Signals.
+- `TelemetryHistoryClient` performs HTTP requests with RxJS observables.
+- The store merges live and historical samples into one ordered timeline using `timestampUtc` then `sampleId`.
+- The component renders only visible points and never asks Angular template change detection to process each sample.
 
 ## Vertical Slices For ATDD
 
-### Slice 1. Stable History Page Contract
+### Slice 1. Stable History Page
+**Requirements**  
+`FR3`, `FR6`, `FR10`
+
 **Goal**  
-The client can ask for the next or previous page for one metric and always receive a deterministic result.
+The client can request older or newer history pages and always receive a deterministic result.
 
 **ATDD**
-- Given telemetry exists for one metric across many timestamps
-- When the client requests `pageSize=1024` with no cursor
-- Then the API returns the newest 1024 points sorted ascending by `timestampUtc, sampleId`
-- And the response contains `previousCursor` when older data exists
-- And the response contains `nextCursor` only when newer data exists
+- Given persisted telemetry exists for one metric
+- When the client requests a page with `metricId`, `direction`, `cursorTimestampUtc`, and `cursorSampleId`
+- Then the API returns items sorted ascending by `timestampUtc` then `sampleId`
+- And the response contains cursor metadata for the next older or newer page
+- And replaying the next cursor does not create gaps caused by unstable ordering
 
-**Notes**
-- Server default page size: `1024`
-- Server max page size: `4096`
-- Cursor fields: `metricId`, `timestampUtc`, `sampleId`, `direction`
-- Response order is always ascending so the client merge path stays trivial
+### Slice 2. Cache Before Fetch
+**Requirements**  
+`FR4`, `FR5`, `FR7`
 
-### Slice 2. Signal Cache For Historical Coverage
 **Goal**  
-The chart does not refetch data that is already loaded.
+Scrubbing inside already loaded history does not issue another HTTP request.
 
 **ATDD**
-- Given the store already holds pages covering `10:00:00Z` to `10:03:24Z`
-- When the user scrubs inside that loaded range
-- Then no HTTP request is sent
-- And the visible chart data is derived from cached points only
+- Given the store already holds a loaded window covering the requested viewport
+- When the user scrubs inside that viewport
+- Then the chart updates from memory only
+- And no HTTP request is sent
 
-**Notes**
-- Store keeps immutable page entries keyed by cursor
-- Store also keeps merged coverage ranges so gap checks are O(number of ranges), not O(number of points)
-- Pages are merged by cursor, not by array index
+### Slice 3. Fetch Early At Window Edge
+**Requirements**  
+`FR5`, `NFR1`, `NFR2`
 
-### Slice 3. Predictive Prefetch While Scrubbing
 **Goal**  
-The chart stays ahead of the scrubber and avoids visible fetch stalls.
+The chart loads the adjacent page before the scrubber reaches a cache boundary.
 
 **ATDD**
-- Given the viewport is within 20 percent of a loaded range edge
-- When the user keeps scrubbing toward that edge
-- Then the store starts loading the adjacent page in the same direction
-- And the current chart stays interactive while the request is in flight
+- Given the viewport is near the start or end of a loaded window
+- When the user continues scrubbing toward that edge
+- Then the store requests the adjacent page early
+- And the chart remains interactive while the request is in flight
 
-**Notes**
-- Only one forward prefetch and one backward prefetch may be in flight per metric
-- Prefetch is cancelled when the metric changes
-- Prefetch uses the same HTTP observable contract as direct loads
+### Slice 4. Render Only What The User Can See
+**Requirements**  
+`FR8`, `NFR1`, `NFR2`, `NFR3`
 
-### Slice 4. 60 FPS Chart Projection
 **Goal**  
-The chart updates only on animation frames and only with visible points.
+The chart stays visually stable at the target frame rate.
 
 **ATDD**
-- Given the store contains more points than are currently visible
+- Given the timeline contains more points than the viewport can display
 - When the viewport changes
-- Then the chart adapter receives only visible points for the current range
-- And Chart.js is updated with `chart.update('none')`
-- And Angular change detection is not used for each sample or scrub step
+- Then the component renders only points inside the viewport
+- And if the point count is larger than the chart width in pixels, the component reduces the visible set before calling Chart.js
+- And the chart updates with `chart.update('none')`
 
-**Notes**
-- Rendering runs inside `requestAnimationFrame`
-- `Chart.js` options: `parsing: false`, `normalized: true`, animations disabled
-- When visible points exceed horizontal pixels, the projector emits a reduced series using one sample bucket per pixel column with min/max preservation
+## Runtime Design
 
-## Contracts
+### In-Memory Model
+- Keep one sorted array of `TelemetryPoint` for the active `metricId`.
+- Keep one list of merged `LoadedWindow` ranges.
+- Keep live mode and historical mode in the same store.
+- Do not maintain separate live and historical rendering pipelines.
 
-### HTTP Request
+### Render Rule
+- The component creates the Chart.js chart once.
+- The component runs chart mutation inside `NgZone.runOutsideAngular`.
+- Store changes are coalesced into one `requestAnimationFrame` render.
+- The component mutates the existing dataset instead of recreating the chart.
+
+### Fetch Rule
+- `TelemetryHistoryClient` returns `Observable<TelemetryHistoryPage>`.
+- The store decides when to fetch.
+- The store never fetches if the requested viewport is already inside `LoadedWindow`.
+- The store fetches one adjacent page at a time per direction.
+
+### Merge Rule
+- Merge order is always `timestampUtc`, then `sampleId`.
+- If two pages overlap, the later merge drops duplicates by `sampleId`.
+- Live samples are merged into the same ordered array, so returning to live mode is only a viewport change.
+
+## HTTP Contract
 `GET /api/telemetry/history?metricId={metricId}&pageSize={pageSize}&direction={Older|Newer}&cursorTimestampUtc={timestamp?}&cursorSampleId={sampleId?}`
 
-### HTTP Response
+### Response Shape
 ```json
 {
   "metricId": "motor-speed",
@@ -114,59 +133,28 @@ The chart updates only on animation frames and only with visible points.
 }
 ```
 
-## Classes, Interfaces, Enums, Types
+## Classes, Enums, And Types
 
 | Name | Kind | Responsibility |
 | --- | --- | --- |
-| `ChartComponent` | Angular component | Hosts the chart, scrubber, and mode switch. Delegates data and rendering work to the store and adapter. |
-| `TelemetryHistoryStore` | Angular injectable service | Signal-based state owner for `metricId`, `viewport`, `mode`, page cache, coverage ranges, loading flags, and visible series. |
-| `TelemetryHistoryApiClient` | Angular injectable service | Uses `HttpClient` and RxJS observables to fetch history pages from the backend. No local state. |
-| `ChartViewportProjector` | TypeScript class | Converts loaded telemetry into the exact visible dataset for the current viewport and canvas width. |
-| `ChartJsSeriesAdapter` | TypeScript class | Owns the `Chart.js` instance, applies mutable dataset updates, and schedules redraws on animation frames. |
-| `HistoryPageCacheEntry` | Type | Immutable cached page with `items`, `previousCursor`, `nextCursor`, `rangeStartUtc`, and `rangeEndUtc`. |
-| `LoadedRange` | Type | Inclusive time range already covered in local cache for one metric. Used for gap detection and prefetch decisions. |
-| `HistoricalTelemetryQuery` | Type | Client-side request object sent to `TelemetryHistoryApiClient`. Contains metric, page size, cursor, and direction. |
-| `TelemetryHistoryPageDto` | Type | Server response contract containing ordered items and continuation cursors. |
-| `TelemetryHistoryCursorDto` | Type | Cursor contract using `metricId`, `timestampUtc`, `sampleId`, and `direction`. |
-| `TelemetryPointDto` | Type | Single telemetry sample with `sampleId`, `timestampUtc`, and `value`. |
-| `ChartMode` | Enum | `Live` or `Historical`. Controls whether the viewport follows now or scrubber time. |
-| `CursorDirection` | Enum | `Older` or `Newer`. Keeps paging explicit and stable. |
+| `TelemetryChartComponent` | Angular component | Owns the Chart.js chart, scrubber events, and render scheduling. |
+| `TelemetryChartStore` | Angular injectable service | Signal-based state owner for `metricId`, `mode`, `viewport`, ordered timeline, loaded windows, and loading flags. |
+| `TelemetryHistoryClient` | Angular injectable service | Calls the history API through `HttpClient` and returns RxJS observables. |
+| `TelemetryPoint` | Type | One telemetry sample with `metricId`, `timestampUtc`, `sampleId`, and `value`. |
+| `TelemetryHistoryCursor` | Type | Cursor fields required to page deterministically. |
+| `TelemetryHistoryPage` | Type | Ordered history items plus continuation cursors and availability flags. |
+| `LoadedWindow` | Type | Inclusive time range already available in memory for the active metric. |
+| `Viewport` | Type | Visible start and end time for the chart. |
+| `ChartMode` | Enum | `Live` or `Historical`. |
+| `HistoryDirection` | Enum | `Older` or `Newer`. |
 
-## State Model
-
-| Signal | Purpose |
-| --- | --- |
-| `metricId` | Active telemetry metric for the chart. |
-| `mode` | `Live` or `Historical`. |
-| `viewport` | Visible time range in UTC. |
-| `pageCache` | Map of loaded page entries keyed by cursor signature. |
-| `loadedRanges` | Merged ranges already covered by cached history. |
-| `visibleSeries` | Computed points currently projected for the chart. |
-| `isInitialLoadPending` | True while the first history page is loading. |
-| `isForwardPrefetchPending` | Guards duplicate forward fetches. |
-| `isBackwardPrefetchPending` | Guards duplicate backward fetches. |
-| `lastError` | Last non-fatal fetch error to surface in the UI. |
-
-## Fetch And Merge Rules
-- The store never inserts one point at a time into the chart.
-- The store merges full pages into cache, then recomputes `loadedRanges`.
-- The projector slices the merged cache by viewport start and end.
-- Live points are appended to the same logical timeline so switching between `Live` and `Historical` mode does not need a separate chart path.
-- If the viewport overlaps both live cache and historical cache, the projector merges them and removes duplicates by `sampleId`.
-
-## Rendering Rules
-- `ChartComponent` creates the chart once.
-- `ChartJsSeriesAdapter` mutates the existing dataset array instead of replacing the entire chart object.
-- All rendering work runs in `NgZone.runOutsideAngular`.
-- The adapter coalesces multiple store changes into one animation-frame render.
-- The chart never animates historical page loads; it only paints the new dataset.
-
-## Failure Handling
-- If one history request fails, the chart keeps the last good data on screen.
-- The store records the error and exposes a retry command for the missing gap.
-- Cursor responses are treated as authoritative; the client never guesses the next cursor.
+## Why This Is The Minimum
+- One metric means one timeline array is enough.
+- One store is enough because all decisions depend on the same state: mode, viewport, loaded windows, and timeline.
+- One HTTP client is enough because historical retrieval is one endpoint.
+- Any extra projector or adapter class would only rename logic that already belongs to the component or store.
 
 ## Out Of Scope
-- Multi-metric overlays in one chart
+- Multi-metric charts
+- Browser persistence
 - Server-side aggregation beyond cursor paging
-- Offline storage in the browser

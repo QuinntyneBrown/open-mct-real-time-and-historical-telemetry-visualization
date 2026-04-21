@@ -5,33 +5,30 @@ skinparam classAttributeIconSize 0
 skinparam packageStyle rectangle
 
 package "Frontend" {
-  class ChartComponent <<component>>
-  class TelemetryHistoryStore <<signal store>>
-  class TelemetryHistoryApiClient <<http client>>
-  class ChartViewportProjector <<projector>>
-  class ChartJsSeriesAdapter <<adapter>>
+  class TelemetryChartComponent <<component>>
+  class TelemetryChartStore <<signal store>>
+  class TelemetryHistoryClient <<http client>>
 }
 
 package "Contracts" {
-  class HistoricalTelemetryQuery
-  class TelemetryHistoryPageDto
-  class TelemetryHistoryCursorDto
-  class TelemetryPointDto
-  class HistoryPageCacheEntry
-  class LoadedRange
+  class TelemetryPoint
+  class TelemetryHistoryCursor
+  class TelemetryHistoryPage
+  class LoadedWindow
+  class Viewport
+  enum ChartMode
+  enum HistoryDirection
 }
 
-ChartComponent --> TelemetryHistoryStore : updates viewport\nswitches mode
-ChartComponent --> ChartJsSeriesAdapter : owns chart instance
-TelemetryHistoryStore --> TelemetryHistoryApiClient : fetchPage()
-TelemetryHistoryStore --> ChartViewportProjector : projectVisibleSeries()
-TelemetryHistoryStore o-- HistoryPageCacheEntry : caches
-TelemetryHistoryStore o-- LoadedRange : tracks coverage
-ChartViewportProjector --> ChartJsSeriesAdapter : render(series)
-TelemetryHistoryApiClient --> HistoricalTelemetryQuery
-TelemetryHistoryApiClient --> TelemetryHistoryPageDto
-TelemetryHistoryPageDto o-- TelemetryHistoryCursorDto : previousCursor
-TelemetryHistoryPageDto o-- TelemetryHistoryCursorDto : nextCursor
-TelemetryHistoryPageDto "1" o-- "*" TelemetryPointDto : items
-HistoricalTelemetryQuery --> TelemetryHistoryCursorDto : cursor
+TelemetryChartComponent --> TelemetryChartStore : scrub / resume live
+TelemetryChartComponent --> TelemetryChartComponent : render on animation frame
+TelemetryChartStore --> TelemetryHistoryClient : fetch history page
+TelemetryChartStore o-- TelemetryPoint : ordered timeline
+TelemetryChartStore o-- LoadedWindow : loaded history
+TelemetryChartStore --> Viewport
+TelemetryChartStore --> ChartMode
+TelemetryHistoryClient --> TelemetryHistoryPage
+TelemetryHistoryPage o-- TelemetryHistoryCursor : previous / next
+TelemetryHistoryPage "1" o-- "*" TelemetryPoint : items
+TelemetryHistoryCursor --> HistoryDirection
 @enduml

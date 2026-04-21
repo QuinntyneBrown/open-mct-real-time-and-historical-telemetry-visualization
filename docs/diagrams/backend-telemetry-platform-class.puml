@@ -4,47 +4,29 @@ hide empty members
 skinparam classAttributeIconSize 0
 skinparam packageStyle rectangle
 
-package "Workers" {
-  class TelemetryGenerationWorker <<BackgroundService>>
-  class TelemetryFanOutWorker <<BackgroundService>>
-  class TelemetryPersistenceWorker <<BackgroundService>>
-  class TelemetryBroadcastWorker <<BackgroundService>>
-}
-
-package "API" {
+package "Backend" {
+  class TelemetryGeneratorWorker <<BackgroundService>>
+  class TelemetryDispatchWorker <<BackgroundService>>
   class TelemetryController <<Controller>>
+  class TelemetryRepository <<repository>>
   class TelemetryHub <<Hub>>
 }
 
-package "Application" {
-  interface ITelemetryValueGenerator
-  class TelemetryHistoryService
-  interface ITelemetryRepository
-  interface ITelemetryClient
-}
-
-package "Infrastructure" {
-  class SqlTelemetryRepository
+package "Contracts" {
   class TelemetrySample
-  class TelemetryHistoryRequest
-  class TelemetryHistoryPageDto
   class TelemetryHistoryCursorDto
-  class TelemetryMetricOptions
+  class TelemetryHistoryPageDto
+  class TelemetryOptions
+  enum HistoryDirection
 }
 
-TelemetryGenerationWorker --> ITelemetryValueGenerator : generate values
-TelemetryGenerationWorker --> TelemetryFanOutWorker : ingress channel
-TelemetryFanOutWorker --> TelemetryPersistenceWorker : persistence channel
-TelemetryFanOutWorker --> TelemetryBroadcastWorker : broadcast channel
-TelemetryPersistenceWorker --> ITelemetryRepository : insert batch
-TelemetryBroadcastWorker --> ITelemetryClient : telemetrySample()
-TelemetryController --> TelemetryHistoryService : getHistory()
-TelemetryHistoryService --> ITelemetryRepository : read page
-SqlTelemetryRepository ..|> ITelemetryRepository
-TelemetryHub --> ITelemetryClient : group broadcast
-TelemetryHistoryService --> TelemetryHistoryRequest
-TelemetryHistoryService --> TelemetryHistoryPageDto
+TelemetryGeneratorWorker --> TelemetryDispatchWorker : Channel<TelemetrySample>
+TelemetryDispatchWorker --> TelemetryHub : telemetrySample()
+TelemetryDispatchWorker --> TelemetryRepository : insert batch
+TelemetryController --> TelemetryRepository : read history page
+TelemetryRepository --> TelemetryHistoryPageDto
 TelemetryHistoryPageDto o-- TelemetryHistoryCursorDto
-TelemetryHistoryPageDto "1" o-- "*" TelemetrySample
-TelemetryGenerationWorker --> TelemetryMetricOptions
+TelemetryHistoryPageDto "1" o-- "*" TelemetrySample : items
+TelemetryGeneratorWorker --> TelemetryOptions
+TelemetryHistoryCursorDto --> HistoryDirection
 @enduml
