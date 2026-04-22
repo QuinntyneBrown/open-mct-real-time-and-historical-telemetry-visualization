@@ -1,0 +1,55 @@
+<mat-toolbar color="primary" class="toolbar">
+  <span>Telemetry Visualization</span>
+</mat-toolbar>
+<main class="main-content">
+  <mat-card class="telemetry-card">
+    <h1>Telemetry Panel</h1>
+    <mat-form-field appearance="fill" class="telemetry-selector" style="width: 100%;">
+      <mat-label>Telemetry Source</mat-label>
+      <mat-select [value]="store.activeTelemetryId()" (selectionChange)="store.activeTelemetryId.set($event.value)" [disabled]="catalog.telemetryIds().length === 0">
+        <mat-option *ngFor="let telemetryId of catalog.telemetryIds()" [value]="telemetryId">{{ telemetryId }}</mat-option>
+      </mat-select>
+    </mat-form-field>
+    <mat-button-toggle-group class="mode-toggle" [value]="store.mode()" (change)="store.mode.set($event.value)">
+      <mat-button-toggle value="live">Live</mat-button-toggle>
+      <mat-button-toggle value="historical">Historical</mat-button-toggle>
+    </mat-button-toggle-group>
+    <div *ngIf="store.activeTelemetryId()">
+      <mat-card *ngIf="store.mode() === 'live'">
+        <div *ngIf="store.latestSample() as sample">
+          <div><strong>Telemetry:</strong> {{ sample.telemetryId }}</div>
+          <div><strong>Value:</strong> {{ sample.value }}</div>
+          <div><strong>Timestamp:</strong> {{ sample.timestampUtc }}</div>
+        </div>
+        <div *ngIf="!store.latestSample()">
+          <div><strong>Telemetry:</strong> {{ store.activeTelemetryId() }}</div>
+          <div><strong>Value:</strong> waiting for telemetry...</div>
+        </div>
+        <telemetry-chart [samples]="store.liveSamples()"></telemetry-chart>
+        <ng-container *ngIf="store.connectionState() !== 'connected'">
+          <div *ngIf="store.connectionState() === 'connecting'">Connecting...</div>
+          <div *ngIf="store.connectionState() === 'disconnected'">Disconnected</div>
+        </ng-container>
+      </mat-card>
+      <mat-card *ngIf="store.mode() === 'historical'">
+        <ng-container *ngIf="historyStore.loading(); else loaded">
+          <mat-progress-spinner mode="indeterminate"></mat-progress-spinner>
+        </ng-container>
+        <ng-template #loaded>
+          <div *ngIf="historyStore.error()">Error: {{ historyStore.error() }}</div>
+          <div *ngIf="historyStore.page() as page">
+            <div><strong>Telemetry:</strong> {{ store.activeTelemetryId() }}</div>
+            <div><strong>Samples:</strong> {{ page.samples.length }}</div>
+            <telemetry-chart [samples]="page.samples"></telemetry-chart>
+            <div class="history-actions">
+              <button mat-raised-button (click)="historyStore.loadOlder(store.activeTelemetryId()!)" [disabled]="!page.hasPrevious">Older</button>
+              <button mat-raised-button (click)="historyStore.loadNewer(store.activeTelemetryId()!)" [disabled]="!page.hasNext">Newer</button>
+            </div>
+          </div>
+        </ng-template>
+      </mat-card>
+    </div>
+  </mat-card>
+</main>
+
+

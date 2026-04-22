@@ -13,24 +13,24 @@
           "style": "scss"
         }
       },
-      "root": "projects/shell",
-      "sourceRoot": "projects/shell/src",
+      "root": "projects/openmct",
+      "sourceRoot": "projects/openmct/src",
       "prefix": "app",
       "architect": {
         "build": {
           "builder": "@angular/build:application",
           "options": {
-            "browser": "projects/shell/src/main.ts",
-            "tsConfig": "projects/shell/tsconfig.app.json",
+            "browser": "projects/openmct/src/main.ts",
+            "tsConfig": "projects/openmct/tsconfig.app.json",
             "inlineStyleLanguage": "scss",
             "assets": [
               {
                 "glob": "**/*",
-                "input": "projects/shell/public"
+                "input": "projects/openmct/public"
               }
             ],
             "styles": [
-              "projects/shell/src/styles.scss"
+              "projects/openmct/src/styles.scss"
             ]
           },
           "configurations": {
@@ -59,6 +59,9 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.json"
+          },
           "configurations": {
             "production": {
               "buildTarget": "shell:build:production"

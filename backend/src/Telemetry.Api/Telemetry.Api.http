@@ -1,0 +1,11 @@
+@Telemetry.Api_HostAddress = http://localhost:5291
+
+GET {{Telemetry.Api_HostAddress}}/openapi/v1.json
+Accept: application/json
+
+###
+
+GET {{Telemetry.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
